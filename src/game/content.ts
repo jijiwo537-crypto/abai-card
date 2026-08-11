@@ -38,6 +38,22 @@ const C = (g: number, c: Record<string, number> = {}) => ({ g, c });
  * so the frame renders as a gradient between the two.
  */
 const GOLD_CARDS: Record<string, CardDef> = {
+  /*
+   * The cheapest gold card in the set, and the one the tutorial holds up.
+   *
+   * The anatomy chapter used 天穹執律, which costs four — a card a first-timer is shown
+   * before they have been told what a 魔法石 is, and could not cast for another three turns
+   * even if they had been. This one costs one of each colour and nothing else: two pips, no
+   * generic number, a printed 2/1 and a single keyword. Everything the chapter points at is
+   * on it, and none of it is buried under a body of rules text.
+   */
+  gold_shoal_sentinel: {
+    id: 'gold_shoal_sentinel', name: '曦潮哨衛', type: 'creature', color: 'U',
+    colors: ['W', 'U'], sub: ['鳥', '斥候'], cost: C(0, { W: 1, U: 1 }),
+    pow: 2, tou: 1, kw: ['flying'],
+    text: '飛行',
+    flavor: '牠沿著潮線巡邏，天亮以前不會落地。', rarity: 'U',
+  },
   gold_sky_marshal: {
     id: 'gold_sky_marshal', name: '天穹執律', type: 'creature', color: 'W',
     colors: ['W', 'U'], sub: ['天使', '執法者'], cost: C(2, { W: 1, U: 1 }),
