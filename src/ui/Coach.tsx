@@ -105,16 +105,10 @@ interface Step {
    * for 結算戰鬥 to be pressed on.
    */
   skip?: (c: Ctx) => boolean;
-  /**
-   * What to say while a gated step is waiting for the board.
-   *
-   * Silence is wrong here. The board does not play itself on your own turn, so a lesson that
-   * says nothing while it waits for the opponent to attack leaves the player sitting in front
-   * of a game that is waiting for *them*. This line is not the step's instruction — it does
-   * not tell you how to block before there is anything to block — it tells you to carry on
-   * playing, which is the true answer to "what do I do now".
-   */
-  waiting?: string;
+  /* A gated step that has not opened yet shows nothing at all — no panel, no light, no line.
+     It used to put up a 繼續進行 card telling the player to carry on by themselves, which is
+     a panel whose content is that it has nothing to say; the board is unveiled and fully
+     live at that moment, which says the same thing without a box on top of it. */
   /** Puts a card up, and boxes one part of it if `spot` names one. */
   card?: boolean;
   spot?: Spot;
@@ -189,8 +183,15 @@ const C8 = '法術';
 const C9 = '反擊';
 const C10 = '完成';
 
-/** The card the anatomy chapter is taught on: the deck's own commander. */
-const SHOWCARD = 'gold_sky_marshal';
+/**
+ * The card the anatomy chapter is taught on, and the last card of the opening hand.
+ *
+ * Two pips and no generic number, one keyword, a printed 2/1: every part the chapter puts a
+ * box around is on it once and is legible at the size the card is shown. The chapter used to
+ * use the deck's four-mana commander, whose rules text ran to two lines and whose cost the
+ * player could not have paid for another three turns.
+ */
+const SHOWCARD = 'gold_shoal_sentinel';
 
 /** It is my main phase, with nothing in the air. */
 const myMain = (s: GameState) =>
@@ -362,7 +363,13 @@ export const STEPS: Step[] = [
     key: 'again', chapter: C4, title: '輪到你了',
     body: '上回合橫置的卡牌已經重置狀態了！思考如何分配這回合的魔力並決定是否發動攻擊',
     when: (c) => myMain(c.s) && myLands(c.s) >= 1,
-    focus: () => ['button'],
+    /*
+     * Nothing. This step is not asking for anything to be pressed — it is the beat where you
+     * look at your own board again — and lighting the key put a line across the screen to a
+     * button whose job this turn has not been said yet. The next step is 記得放魔法石, so
+     * 繼續 runs straight into it.
+     */
+    focus: () => [],
   },
   {
     key: 'land2', chapter: C4, title: '記得放魔法石',
@@ -486,7 +493,6 @@ export const STEPS: Step[] = [
     when: (c) => c.s.phase === 'blk' && c.s.active !== 'you' && c.s.attackers.length > 0,
     // If they never swing, the lesson does not stand there waiting for them.
     skip: (c) => (c.s.turn ?? 0) > c.since + 4,
-    waiting: '照剛才那一輪自己打，等對手攻過來我再教你怎麼擋。',
     /*
      * And it moves with you. Once you have picked a blocker up, the question is no longer
      * "which of mine" but "which of theirs" — so the light leaves your row and lands on the
@@ -524,7 +530,6 @@ export const STEPS: Step[] = [
       try { return E.defOf(c.s, i)?.type === 'sorcery'; } catch { return false; }
     }),
     skip: (c) => (c.s.turn ?? 0) > c.since + 4,
-    waiting: '等一下再打這張——先讓對手把生物放上來。',
     hold: 1600,
   },
 
@@ -539,7 +544,6 @@ export const STEPS: Step[] = [
     when: (c) => c.s.awaitResp === 'you',
     // Likewise: if nothing worth answering is ever cast, move on to the closing sequence.
     skip: (c) => (c.s.turn ?? 0) > c.since + 4,
-    waiting: '繼續打，等對手施放咒語，上方問你的時候我再教你怎麼反擊。',
     focus: (c) => pick(c, c.s.zones.you.hand, (d) => d?.type === 'instant'),
     // Escape hatch: the spell may resolve while you look at it.
     wait: (c, b) =>
@@ -578,9 +582,13 @@ const regionOf = (spot: Spot, pips: number): [number, number, number, number] =>
   switch (spot) {
     case 'cost': {
       /* A touch more room than the pips strictly occupy: the box is there to be seen from
-         across a phone screen, and one drawn tight to the ink reads as part of the artwork. */
+         across a phone screen, and one drawn tight to the ink reads as part of the artwork.
+         And a floor under the width, because how far left the pips start depends on how many
+         there are — a two-pip cost drew a box small enough to be missed on a phone. */
       const left = PIP_RIGHT - PIP_R * 2 - (pips - 1) * (PIP_R * 2 + PIP_GAP);
-      return [left - 44, 160, PIP_RIGHT - left + 88, 190];
+      const right = PIP_RIGHT + 44;
+      const x = Math.min(left - 44, right - 430);
+      return [x, 160, right - x, 190];
     }
     case 'name': return [150, 150, 1100, 210];
     case 'art': return [150, 380, 1748, 1310];
@@ -912,8 +920,19 @@ const Gallery: React.FC<{ tune?: Tune }> = ({ tune }) => {
 
 interface Props {
   state: GameState;
-  /** Publishes the objects the board should keep lit. */
+  /** Publishes the objects the board should keep lit. Null when nothing is lit. */
   onFocus: (keys: string[] | null) => void;
+  /**
+   * Publishes what the board should let the player touch, which is a different question.
+   *
+   * A reading step lights nothing, and the board must not be dimmed for it — but nothing
+   * being lit is still an instruction, and the instruction is "not yet": no card may be
+   * played and the key does nothing. A step that is waiting on the opponent means the
+   * opposite, and has to leave the board completely live, because what it is waiting for is
+   * the player carrying on with their own turn. An empty array is the first; null is the
+   * second.
+   */
+  onGate: (keys: string[] | null) => void;
   onExit: () => void;
   /** Where a board object is on screen, so the pointer can reach it. */
   project?: (key: string) => { x: number; y: number } | null;
@@ -939,7 +958,7 @@ interface Props {
   quiet?: boolean;
 }
 
-export const Coach: React.FC<Props> = ({ state, onFocus, onExit, project, onStep, onEnter, selected, quiet }) => {
+export const Coach: React.FC<Props> = ({ state, onFocus, onGate, onExit, project, onStep, onEnter, selected, quiet }) => {
   const [at, setAt] = useState(0);
   const [ready, setReady] = useState(false);
   const baseRef = useRef<Snapshot>(snap(state));
@@ -990,10 +1009,6 @@ export const Coach: React.FC<Props> = ({ state, onFocus, onExit, project, onStep
      the opponent attacks cannot be laid out. In a real game this is always false. */
   const held = tuning.on ? false : openedRef.current !== at || !!quiet;
   const giveUp = held && openedRef.current !== at && !!step.skip?.(ctx);
-  /* Waiting on the board rather than on the banner: the banner is the board talking, and the
-     lesson says nothing over it; a gated step is the lesson waiting for its moment, and that
-     is worth a line of its own. */
-  const waitingLine = openedRef.current !== at && !quiet ? step.waiting ?? null : null;
 
   /* A waiting step measures against the board as it was when the step opened — and "opened"
      means the moment it was allowed to speak, not the moment it came up in the list. A step
@@ -1028,14 +1043,20 @@ export const Coach: React.FC<Props> = ({ state, onFocus, onExit, project, onStep
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [liveAt]);
 
-  const keys = useMemo(() => (held ? [] : step.focus(ctx)), [step, state, selected, held]);
+  /*
+   * A held step is the lesson standing back: it says nothing, lights nothing, and — the part
+   * that is not the same — restricts nothing. What it is waiting for is the player playing
+   * their own turn, so the board has to be entirely theirs while it waits.
+   */
+  const keys = useMemo(() => (held ? null : step.focus(ctx)), [step, state, selected, held]);
   const keySig = keys === null ? 'off' : keys.join('|');
   useEffect(() => {
     // No named objects, no veil — see `focus` above.
     onFocus(keys && keys.length ? keys : null);
+    onGate(keys);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [keySig, onFocus]);
-  useEffect(() => () => onFocus(null), [onFocus]);
+  }, [keySig, onFocus, onGate]);
+  useEffect(() => () => { onFocus(null); onGate(null); }, [onFocus, onGate]);
 
   // The board is what says a task is done, so the check rides the state it produces.
   useEffect(() => {
@@ -1334,24 +1355,54 @@ export const Coach: React.FC<Props> = ({ state, onFocus, onExit, project, onStep
     });
   }, [at, shownPlace, held, tune, step]);
 
-  /* The closing sequence. The lesson ends on a curtain, not by handing you a half-played
-     game and walking off — the board behind it is the one you were taught on, and the button
-     underneath is the only thing left to do. */
+  /*
+   * The closing sequence.
+   *
+   * The first version was a struck rosette that arrived all at once — thirty-six rays and two
+   * rings, popped on in a fifth of a second. Borrowed from the win screen, where a burst is
+   * right because you have just won something; here nobody has won anything, they have
+   * finished learning, and a burst at the end of a lesson is applause for sitting still.
+   *
+   * This one is drawn instead of thrown, in the lesson's own hand: the dashed line that has
+   * been pointing at things for eleven chapters comes back as a ring that draws itself all the
+   * way round and closes. Twelve marks light one after another around it — the chapters,
+   * counted off — a second ring turns slowly the other way, and the sigil in the middle draws
+   * last. Everything is a stroke being laid down, nothing is a flash.
+   */
   if (step.finale) {
     return (
       <div className="coach-fin">
         <div className="coach-fin-art" aria-hidden="true">
           <svg viewBox="-50 -50 100 100">
-            {Array.from({ length: 36 }, (_, i) => {
-              const a = (i / 36) * Math.PI * 2;
-              return <line key={i} x1={Math.cos(a) * 34} y1={Math.sin(a) * 34} x2={Math.cos(a) * 62} y2={Math.sin(a) * 62} />;
-            })}
-            <circle className="ring-a" r="30" />
-            <circle className="ring-b" r="66" />
+            {/* Two hairlines writing themselves round, against each other, well outside the
+                words. The dash has to be the circle's own circumference, handed to the
+                stylesheet: `pathLength` is the tidy way to normalise it and Chromium does not
+                apply it to a `<circle>`, which drew a 1px dot and nothing else. */}
+            <circle className="fin-arc" r="44" style={{ ['--len' as string]: 2 * Math.PI * 44 }} />
+            <circle className="fin-arc slow" r="48" style={{ ['--len' as string]: 2 * Math.PI * 48 }} />
+            {/* Twelve marks between them, lit one after another from the top: the chapters,
+                counted off. */}
+            <g className="fin-ticks">
+              {Array.from({ length: 12 }, (_, i) => {
+                const a = (i / 12) * Math.PI * 2 - Math.PI / 2;
+                return (
+                  <line
+                    key={i}
+                    x1={Math.cos(a) * 44} y1={Math.sin(a) * 44}
+                    x2={Math.cos(a) * 48} y2={Math.sin(a) * 48}
+                    style={{ animationDelay: `${0.55 + i * 0.06}s` }}
+                  />
+                );
+              })}
+            </g>
           </svg>
         </div>
+        {/* Two rules that open outwards from the middle, one above the tag and one under the
+            title — the stamp closing around the words rather than a burst behind them. */}
+        <i className="coach-fin-rule" aria-hidden="true" />
         <span className="coach-fin-tag">{C10}</span>
         <h2>教學完成</h2>
+        <i className="coach-fin-rule late" aria-hidden="true" />
         <p>{step.body}</p>
         <button className="coach-next" onClick={() => { sfx.tap(); onExit(); }}>
           回到牌組選擇
@@ -1368,29 +1419,27 @@ export const Coach: React.FC<Props> = ({ state, onFocus, onExit, project, onStep
       {/* Nothing is drawn while the step is waiting its turn: no panel, no light, no line. */}
       {!held && <Pointer anchor={panelRef} place={shownPlace} keys={keys ?? []} project={project} toBox={!!step.spot} />}
       <div
-        className={`coach-say at-${shownPlace}${step.card ? ' on-card' : ''}${held ? (waitingLine ? ' hushed' : ' waiting') : ''}`}
+        className={`coach-say at-${shownPlace}${step.card ? ' on-card' : ''}${held ? ' waiting' : ''}`}
         ref={panelRef}
-        aria-hidden={held && !waitingLine}
+        aria-hidden={held}
         style={panelStyle}
       >
         <span className="coach-step">
           <b>{step.chapter}</b>
           {at + 1} / {STEPS.length}
         </span>
-        <h2>{waitingLine ? '繼續進行' : (tune.text?.[step.key]?.title ?? step.title)}</h2>
+        <h2>{tune.text?.[step.key]?.title ?? step.title}</h2>
         {/* An empty body is a step whose title says the whole thing; it gets no paragraph
             rather than an empty one, which would leave a gap under the heading. */}
         {(() => {
-          const text = waitingLine ?? tune.text?.[step.key]?.body ?? step.body;
+          const text = tune.text?.[step.key]?.body ?? step.body;
           return text ? <p>{text}</p> : null;
         })()}
         <div className="coach-act">
           {/* A step you had to *do* never shows a button. Doing it is the button: the task
               line stays up until the board says it happened, and then the lesson moves on by
               itself. Only the reading steps have anything to press. */}
-          {waitingLine ? (
-            <span className="coach-task hushed"><i />等待對手</span>
-          ) : step.wait ? (
+          {step.wait ? (
             <span className={`coach-task${ready ? ' done' : ''}`}><i />{ready ? '完成' : (tune.text?.[step.key]?.task ?? step.task)}</span>
           ) : (
             <button className="coach-next" onClick={advance}>

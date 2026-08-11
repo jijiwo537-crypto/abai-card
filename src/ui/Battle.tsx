@@ -128,11 +128,12 @@ const COACH_QUIET_MS = 1000;
  * mana, and every other creature in the set costs two, so an earlier hand had the lesson
  * asking for a summon the rules would refuse; a three-mana 結界 for the third turn, chosen
  * because it lifts the whole board rather than one creature, which is what a 結界 is for; a
- * two-mana colourless 法術 for the chapter that shows a spell being aimed and spent; and an
- * instant for the answering chapter.
+ * two-mana colourless 法術 for the chapter that shows a spell being aimed and spent; an
+ * instant for the answering chapter; and last the card the anatomy chapter holds up, which
+ * costs one of each colour so that everything that chapter points at is legible at a glance.
  */
 const TUT_HAND = ['skyshoal', 'skyshoal', 'skyshoal', 'u_wisp', 'seal', 'c_arc_bolt',
-  'u_dispel', 'gold_sky_marshal'];
+  'u_dispel', 'gold_shoal_sentinel'];
 
 /**
  * The board the lesson opens on: nothing on it.
@@ -182,16 +183,30 @@ function stageTutorial(m: any): GameState {
 }
 
 /**
- * While the lesson is holding them back, every creature the opponent draws is lifted out of
- * their hand and put aside. It runs on the way out of the reducer, so it catches the draw
- * step and the opening hand alike, and it is a no-op — the same state object back — for every
- * game that is not the tutorial and for every turn of the tutorial after the release.
+ * While the lesson is holding them back, whatever the opponent must not play yet is lifted
+ * out of their hand and put aside.
+ *
+ * Two gates, because the two things come back at different times. `tutHold` holds their
+ * creatures, and lets go when defending is next in line — the defending chapter needs
+ * something to be attacked by. `tutMute` holds *every other spell they own* (and declines
+ * the board's 是否反擊 window on the player's behalf), and lets go when answering is next in
+ * line. Until then the opponent plays 魔法石 and nothing else: a spell resolving in front of
+ * a player who has not been told spells can be answered is a lesson happening without its
+ * lesson.
+ *
+ * It runs on the way out of the reducer, so it catches the draw step and the opening hand
+ * alike, and it is a no-op — the same state object back — for every game that is not the
+ * tutorial and for every turn of the tutorial after both releases.
  */
-function holdFoeCreatures(s: any): any {
-  if (!s?.tutHold) return s;
+function holdFoeSpells(s: any): any {
+  if (!s?.tutHold && !s?.tutMute) return s;
   const hand: string[] = s.zones.foe.hand;
   const lift = hand.filter((i) => {
-    try { return E.defOf(s, i)?.type === 'creature'; } catch { return false; }
+    try {
+      const t = E.defOf(s, i)?.type;
+      if (!t || t === 'land') return false;
+      return t === 'creature' ? !!s.tutHold : !!s.tutMute;
+    } catch { return false; }
   });
   if (!lift.length) return s;
   return {
@@ -201,12 +216,24 @@ function holdFoeCreatures(s: any): any {
   };
 }
 
+/** Hand back the part of the stash a release covers, and keep the rest put aside. */
+function returnStash(s: any, wanted: (t: string | undefined) => boolean) {
+  const stash: string[] = s.tutStash ?? [];
+  const back = stash.filter((i) => {
+    try { return wanted(E.defOf(s, i)?.type); } catch { return false; }
+  });
+  return {
+    tutStash: stash.filter((i) => !back.includes(i)),
+    zones: { ...s.zones, foe: { ...s.zones.foe, hand: [...s.zones.foe.hand, ...back] } },
+  };
+}
+
 function teachableMatch(youDeck: string, foeDeck: string): GameState {
   for (let seed = 1; seed <= 40; seed += 1) {
     const m = E.createMatch(youDeck, foeDeck, seed) as GameState;
-    if (m.first === 'you') return holdFoeCreatures(stageTutorial(m));
+    if (m.first === 'you') return holdFoeSpells(stageTutorial(m));
   }
-  return holdFoeCreatures(stageTutorial(E.createMatch(youDeck, foeDeck)));
+  return holdFoeSpells(stageTutorial(E.createMatch(youDeck, foeDeck)));
 }
 
 interface Props {
@@ -240,16 +267,13 @@ export const Battle: React.FC<Props> = ({ youDeck, foeDeck, onExit, coach, onCoa
       if (action?.t === 'tutorialRelease') {
         const s = prev as any;
         if (!s.tutHold) return prev;
-        return {
-          ...s,
-          tutHold: false,
-          tutStash: [],
-          zones: { ...s.zones, foe: { ...s.zones.foe, hand: [...s.zones.foe.hand, ...(s.tutStash ?? [])] } },
-        } as GameState;
+        // Their creatures only. Their spells stay put aside until answering is taught.
+        return { ...s, tutHold: false, ...returnStash(s, (t) => t === 'creature') } as GameState;
       }
       if (action?.t === 'tutorialUnmute') {
         const s = prev as any;
-        return s.tutMute ? ({ ...s, tutMute: false } as GameState) : prev;
+        if (!s.tutMute) return prev;
+        return { ...s, tutMute: false, ...returnStash(s, () => true) } as GameState;
       }
       if (action?.t === 'choose' && isHouseChoice((prev as any).choice?.kind)) {
         return houseChoose(prev, action.key);
@@ -257,7 +281,7 @@ export const Battle: React.FC<Props> = ({ youDeck, foeDeck, onExit, coach, onCoa
       const screened = houseBefore(prev, action);
       if (screened.verdict === 'refuse') return prev;
       const input = screened.verdict === 'amend' ? screened.state : prev;
-      return holdFoeCreatures(houseAfter(input, (E.reducer as any)(input, action), action));
+      return holdFoeSpells(houseAfter(input, (E.reducer as any)(input, action), action));
     }) as any,
     null,
     () => (coach ? teachableMatch(youDeck, foeDeck) : E.createMatch(youDeck, foeDeck)) as GameState,
@@ -301,6 +325,28 @@ export const Battle: React.FC<Props> = ({ youDeck, foeDeck, onExit, coach, onCoa
    * darkens itself and redraws exactly these, so the light is the object's own outline.
    */
   const [coachSpot, setCoachSpot] = useState<string[] | null>(null);
+  /*
+   * What the lesson will let you touch, which is not the same as what it has lit.
+   *
+   * The lit set is null whenever nothing is lit — a reading step, the six-card row, the card
+   * held up — and the veil reads it that way, because a dark board with nothing bright on it
+   * is just a dark board. But "nothing is lit" is still an instruction: it means *nothing*,
+   * so the button does nothing and no card can be played. That is a different null from the
+   * one a step waiting on the opponent needs, where the player is told to carry on playing
+   * normally and the board must stay fully live. So the gate is carried separately: an array
+   * (possibly empty) means only these, and null means no restriction at all.
+   */
+  const [coachGate, setCoachGate] = useState<string[] | null>(null);
+  const gateRef = useRef<string[] | null>(null);
+  gateRef.current = coach ? coachGate : null;
+  /** Would the lesson refuse this? Named keys are card iids, plus 'button' for the big key. */
+  const gated = useCallback((key: string) => {
+    const g = gateRef.current;
+    return !!g && !g.includes(key);
+  }, []);
+  /* Both defined further down; the test hook above is built before them. */
+  const playRef = useRef<((card: RenderCard) => void) | null>(null);
+  const primaryLiveRef = useRef(false);
   /** The board's 3D effects API, once the canvas has published it. */
   const fxApiRef = useRef<BoardFx | null>(null);
   const onFxApi = useCallback((api: BoardFx) => {
@@ -689,6 +735,18 @@ export const Battle: React.FC<Props> = ({ youDeck, foeDeck, onExit, coach, onCoa
       canPlay: (iid: string) => {
         try { return E.canPlay(latest.current, 'you', iid); } catch (e) { return String(e); }
       },
+      /*
+       * Play a card down the same path a drag does, refusals and all. `canPlay` above answers
+       * the rules; this answers the board, which is where the lesson's own refusals live —
+       * a harness that dispatched straight into the reducer would walk past every one of them.
+       */
+      play: (iid: string) => {
+        const def = (() => { try { return E.defOf(latest.current, iid); } catch { return null; } })();
+        playRef.current?.({ instanceId: iid, type: def?.type } as any);
+      },
+      /** Whether the big key is actually pressable, lesson included. Read live: the gate
+          changes on renders this hook is not rebuilt for. */
+      get primaryLive() { return primaryLiveRef.current; },
     };
   }, [state]);
 
@@ -1182,6 +1240,17 @@ export const Battle: React.FC<Props> = ({ youDeck, foeDeck, onExit, coach, onCoa
     return { label: '對手回合…', act: () => {}, enabled: false };
   }, [state, busy]);
 
+  /*
+   * Unlit is unpressable.
+   *
+   * While the lesson is speaking, the key is live only on the steps that light it. Left
+   * always-live it reads as "press me" on every step of a lesson whose entire method is that
+   * the bright thing is the next thing — and pressing it on a reading step throws the board
+   * a phase ahead of the sentence explaining the one it is in.
+   */
+  const primaryLive = primary.enabled && !gated('button');
+  primaryLiveRef.current = primaryLive;
+
   // ---- interactions --------------------------------------------------------
 
   const click = () => sfx.tap();
@@ -1294,13 +1363,23 @@ export const Battle: React.FC<Props> = ({ youDeck, foeDeck, onExit, coach, onCoa
     // While one spell is already aiming, dropping another does nothing — the arrow owns
     // the pointer until a target is picked or the cast is cancelled.
     if (s.pending) return;
+    /*
+     * A card the lesson has not lit cannot be played. The light is the instruction, so a
+     * board that lights one card and then accepts any of the eight is not teaching — it is
+     * decorating. The refusal makes the same sound as an illegal cast, because it is one.
+     */
+    if (gated(iid)) {
+      sfx.error();
+      return;
+    }
     if (!E.canPlay(s, 'you', iid)) {
       sfx.error();
       return;
     }
     castSlot.current = Math.max(0, s.zones.you.hand.indexOf(iid));
     dispatch({ t: card.type === 'land' ? 'playLand' : 'cast', iid });
-  }, []);
+  }, [gated]);
+  playRef.current = onPlayCard;
 
   const targetablePlayers = state.pending?.legalP ?? [];
 
@@ -1344,7 +1423,7 @@ export const Battle: React.FC<Props> = ({ youDeck, foeDeck, onExit, coach, onCoa
           onPlayCard={onPlayCard}
           onHoverCard={onHover}
           primaryLabel={primary.label}
-          primaryEnabled={primary.enabled}
+          primaryEnabled={primaryLive}
           onPrimaryAction={primary.act}
           highlightIds={highlightIds}
           glowIds={glowIds}
@@ -1506,7 +1585,15 @@ export const Battle: React.FC<Props> = ({ youDeck, foeDeck, onExit, coach, onCoa
 
       {/* Hovered card preview, in the a version's floating style */}
       {preview && !peekOff && (
-        <div className="card-preview">
+        /*
+         * The reader dims with the board.
+         *
+         * The veil is the lesson's whole grammar: bright means "this one". A card that has
+         * been dimmed on the table but comes up at full brightness the moment the pointer
+         * crosses it says the opposite thing about itself, in a bigger picture, on the side
+         * of the screen the eye is drawn to anyway.
+         */
+        <div className={`card-preview${coachSpot?.length && !coachSpot.includes(preview.instanceId) ? ' hushed' : ''}`}>
           {/*
             * The preview is drawn by the shared card-effect layer, not as a flat PNG: it
             * gets the border effect and the turning hologram, and because the layer is a
@@ -1535,6 +1622,7 @@ export const Battle: React.FC<Props> = ({ youDeck, foeDeck, onExit, coach, onCoa
         <Coach
           state={state}
           onFocus={setCoachSpot}
+          onGate={setCoachGate}
           onExit={() => onCoachDone?.()}
           // Where things are on screen, so the tutorial's pointer can reach them.
           project={project}
