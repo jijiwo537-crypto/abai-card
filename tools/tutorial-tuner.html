@@ -1,0 +1,655 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>ABAI 教學排版工具</title>
+<style>
+  :root {
+    --bg: #08080c;
+    --panel: #101018;
+    --line: rgba(255,255,255,0.13);
+    --line-hot: rgba(255,255,255,0.4);
+    --text: #ececf4;
+    --dim: #8b8ba0;
+    --gold: #ffd98a;
+    --f: -apple-system, "Noto Sans TC", "PingFang TC", "Microsoft JhengHei", system-ui, sans-serif;
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; }
+  body {
+    background: var(--bg); color: var(--text); font-family: var(--f); font-size: 13px;
+    display: grid; grid-template-columns: 1fr 340px; height: 100vh; overflow: hidden;
+  }
+
+  /* ---- the two screens ---- */
+  .stage { overflow: auto; padding: 18px; display: grid; gap: 18px; align-content: start; }
+  .screen { display: grid; gap: 8px; justify-items: start; }
+  .screen > header { display: flex; align-items: baseline; gap: 10px; }
+  .screen h2 { margin: 0; font-size: 13px; letter-spacing: 0.16em; }
+  .screen .size { color: var(--dim); font-size: 11px; font-variant-numeric: tabular-nums; }
+  .frame-wrap {
+    position: relative; border: 1px solid var(--line); border-radius: 10px; overflow: hidden;
+    background: #000; box-shadow: 0 18px 50px rgba(0,0,0,0.6);
+  }
+  .frame-wrap iframe { border: 0; display: block; transform-origin: 0 0; }
+  /* The overlay is where dragging and the guides happen; it sits over the frame. */
+  .overlay { position: absolute; inset: 0; }
+  .hit {
+    position: absolute; border: 1px dashed rgba(255,217,138,0.9); border-radius: 4px;
+    background: rgba(255,217,138,0.07); cursor: move;
+  }
+  .hit.card { border-color: rgba(140,200,255,0.95); background: rgba(140,200,255,0.07); }
+  .hit.gal { border-color: rgba(150,255,190,0.95); background: rgba(150,255,190,0.07); }
+  .hit > b {
+    position: absolute; left: 0; top: -17px; font-size: 10px; font-weight: 600;
+    letter-spacing: 0.1em; color: #0a0a10; background: rgba(255,217,138,0.95);
+    padding: 1px 5px; border-radius: 3px; white-space: nowrap;
+  }
+  .hit.card > b { background: rgba(140,200,255,0.95); }
+  .hit.gal > b { background: rgba(150,255,190,0.95); }
+  .guide { position: absolute; background: rgba(255,217,138,0.85); pointer-events: none; }
+  .guide.v { width: 1px; top: 0; bottom: 0; }
+  .guide.h { height: 1px; left: 0; right: 0; }
+  /* The notch, drawn over the phone the way iOS puts it on a short edge in landscape. */
+  .notch { position: absolute; top: 0; bottom: 0; left: 0; background: rgba(0,0,0,0.72);
+           border-right: 1px solid rgba(255,255,255,0.18); pointer-events: none; display: grid;
+           place-items: center; }
+  .notch span { writing-mode: vertical-rl; font-size: 9px; letter-spacing: 0.3em; color: #6c6c80; }
+
+  /* ---- the controls ---- */
+  aside { border-left: 1px solid var(--line); background: var(--panel); overflow: auto; padding: 14px; display: grid; gap: 14px; align-content: start; }
+  aside h1 { margin: 0; font-size: 14px; letter-spacing: 0.2em; }
+  aside h1 small { display: block; color: var(--dim); font-size: 10.5px; letter-spacing: 0.08em; margin-top: 4px; font-weight: 400; }
+  fieldset { border: 1px solid var(--line); border-radius: 8px; padding: 10px 11px 12px; margin: 0; display: grid; gap: 9px; }
+  legend { padding: 0 5px; font-size: 11px; letter-spacing: 0.16em; color: var(--gold); }
+  label { display: grid; gap: 4px; font-size: 11px; color: var(--dim); }
+  .row { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+  .row3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 6px; }
+  input[type=range] { width: 100%; accent-color: var(--gold); }
+  input[type=text], textarea, select {
+    width: 100%; background: #05050a; color: var(--text); border: 1px solid var(--line);
+    border-radius: 5px; padding: 6px 7px; font: inherit; font-size: 12px;
+  }
+  textarea { resize: vertical; min-height: 56px; line-height: 1.7; }
+  button {
+    background: #1b1b26; color: var(--text); border: 1px solid var(--line); border-radius: 5px;
+    padding: 7px 10px; font: inherit; font-size: 12px; cursor: pointer;
+  }
+  button:hover { border-color: var(--line-hot); }
+  button.pri { background: var(--gold); color: #0a0a10; border-color: var(--gold); font-weight: 700; }
+  button.on { background: #33334a; border-color: var(--line-hot); }
+  .steps { display: grid; gap: 3px; max-height: 210px; overflow: auto; }
+  .steps button { text-align: left; display: grid; grid-template-columns: 26px 1fr; gap: 6px; padding: 5px 7px; }
+  .steps button.cur { background: #33334a; border-color: var(--gold); }
+  .steps i { color: var(--dim); font-style: normal; font-variant-numeric: tabular-nums; }
+  .val { color: var(--text); font-variant-numeric: tabular-nums; }
+  .hint { color: var(--dim); font-size: 10.5px; line-height: 1.7; }
+  .bar { display: flex; gap: 6px; }
+  .bar button { flex: 1; }
+  .miss { padding: 14px; border: 1px dashed var(--line-hot); border-radius: 8px; color: var(--gold); line-height: 1.9; }
+  code { background: #05050a; padding: 1px 5px; border-radius: 3px; }
+</style>
+</head>
+<body>
+
+<!-- The whole game, base64. Written in by `tools/build-tuner.mjs`; do not edit by hand. -->
+<script type="text/plain" id="game-src">__GAME_B64__</script>
+
+<div class="stage">
+  <div class="screen">
+    <header>
+      <h2>手機（橫向）</h2>
+      <span class="size" id="sz-phone">852 × 393</span>
+      <button id="notch-btn" style="padding:3px 8px;font-size:11px">瀏海：開</button>
+    </header>
+    <div class="frame-wrap" id="wrap-phone">
+      <iframe id="f-phone" name="abai-tune-touch" title="phone"></iframe>
+      <div class="overlay" id="ov-phone"></div>
+      <div class="notch" id="notch"><span>SAFE AREA</span></div>
+    </div>
+  </div>
+
+  <div class="screen">
+    <header>
+      <h2>電腦</h2>
+      <span class="size" id="sz-desk">1500 × 940</span>
+    </header>
+    <div class="frame-wrap" id="wrap-desk">
+      <iframe id="f-desk" name="abai-tune-1" title="desktop"></iframe>
+      <div class="overlay" id="ov-desk"></div>
+    </div>
+  </div>
+</div>
+
+<aside>
+  <h1>教學排版工具<small>拖曳畫面上的框，或用下面的滑桿。左右兩邊各自獨立。</small></h1>
+
+  <div id="missing" class="miss" hidden>
+    遊戲畫面沒有出來。<br />
+    這個檔案是完整的、不需要其他檔案；如果一直是黑的，請改用 Chrome 或 Edge 開啟，
+    或按一次下面的<b>重新載入畫面</b>。
+  </div>
+
+  <fieldset>
+    <legend>步驟</legend>
+    <div class="bar">
+      <button id="prev">← 上一步</button>
+      <button id="next">下一步 →</button>
+    </div>
+    <div class="steps" id="steps"></div>
+  </fieldset>
+
+  <fieldset>
+    <legend>正在調整</legend>
+    <div class="bar">
+      <button class="tgt on" data-tgt="phone">手機</button>
+      <button class="tgt" data-tgt="desk">電腦</button>
+      <button class="tgt" data-tgt="both">兩邊一起</button>
+    </div>
+    <label>自動對齊
+      <div class="bar">
+        <button id="snap" class="on">吸附：開</button>
+        <button id="reset-one">還原這一項</button>
+      </div>
+    </label>
+  </fieldset>
+
+  <fieldset>
+    <legend>提示框（依單元）</legend>
+    <label>停靠角落 <select id="place">
+      <option value="">（自動）</option>
+      <option value="tl">左上</option><option value="top">上中</option><option value="tr">右上</option>
+      <option value="bl">左下</option><option value="bottom">下中</option><option value="br">右下</option>
+    </select></label>
+    <div class="row">
+      <label>左右 <span class="val" id="v-dx">0</span><input type="range" id="dx" min="-400" max="400" value="0" /></label>
+      <label>上下 <span class="val" id="v-dy">0</span><input type="range" id="dy" min="-400" max="400" value="0" /></label>
+    </div>
+    <div class="row">
+      <label>寬度 <span class="val" id="v-pw">—</span><input type="range" id="pw" min="180" max="720" value="0" /></label>
+      <label>字級 <span class="val" id="v-ps">100%</span><input type="range" id="ps" min="70" max="140" value="100" /></label>
+    </div>
+  </fieldset>
+
+  <fieldset>
+    <legend>範例牌（一張牌）</legend>
+    <div class="row">
+      <label>水平 <span class="val" id="v-cx">50%</span><input type="range" id="cx" min="5" max="95" value="50" /></label>
+      <label>垂直 <span class="val" id="v-cy">50%</span><input type="range" id="cy" min="5" max="95" value="50" /></label>
+    </div>
+    <label>大小 <span class="val" id="v-cw">—</span><input type="range" id="cw" min="80" max="460" value="153" /></label>
+  </fieldset>
+
+  <fieldset>
+    <legend>六種牌</legend>
+    <label>垂直 <span class="val" id="v-gy">—</span><input type="range" id="gy" min="5" max="95" value="50" /></label>
+    <label>大小 <span class="val" id="v-gs">100%</span><input type="range" id="gs" min="50" max="160" value="100" /></label>
+  </fieldset>
+
+  <fieldset>
+    <legend>這一步的文字</legend>
+    <label>標題<input type="text" id="t-title" /></label>
+    <label>內文<textarea id="t-body"></textarea></label>
+    <label>任務（沒有就留空）<input type="text" id="t-task" /></label>
+  </fieldset>
+
+  <fieldset>
+    <legend>輸出</legend>
+    <div class="bar">
+      <button class="pri" id="copy">複製設定</button>
+      <button id="paste">貼上設定</button>
+    </div>
+    <div class="bar">
+      <button id="reset-all">全部還原</button>
+      <button id="reload">重新載入畫面</button>
+    </div>
+    <p class="hint">「複製設定」會把你改過的東西複製成一段文字，直接貼給我，我就照著改進正式版。沒改過的項目不會出現在裡面。</p>
+  </fieldset>
+</aside>
+
+<script>
+(() => {
+  'use strict';
+
+  /*
+   * The game is inside this file.
+   *
+   * It used to be loaded from `card-game-standalone.html` next door, which needs the two
+   * files to be in the same folder under the same names — and a browser that will let one
+   * local file frame another, which Safari will not. One file with the game carried inside
+   * it has neither requirement: it opens from wherever it was saved, in anything.
+   *
+   * The frame is told which machine to be through its `name`, because a srcdoc frame has no
+   * URL of its own to put a query string on.
+   */
+  const GAME_HTML = (() => {
+    const el = document.getElementById('game-src');
+    try { return decodeURIComponent(escape(atob(el.textContent.trim()))); } catch { return ''; }
+  })();
+  const SIZES = { phone: [852, 393], desk: [1500, 940] };
+  const STORE = 'abai_tuner_v1';
+
+  /* ------------------------------------------------------------------ state ---- */
+
+  /** What has been changed, per device. Anything absent is "as the game ships it". */
+  const blank = () => ({ panel: {}, card: {}, gallery: {} });
+  let tune = { phone: blank(), desk: blank(), text: {} };
+  let target = 'phone';
+  let snap = true;
+  let notch = true;
+  /** The last thing each frame reported about itself. */
+  const seen = { phone: null, desk: null };
+  let steps = [];
+  let at = 0;
+
+  const load = () => { try { const v = JSON.parse(localStorage.getItem(STORE) || ''); if (v && v.phone) tune = v; } catch {} };
+  const save = () => { try { localStorage.setItem(STORE, JSON.stringify(tune)); } catch {} };
+
+  const $ = (id) => document.getElementById(id);
+  const frames = { phone: $('f-phone'), desk: $('f-desk') };
+  const overlays = { phone: $('ov-phone'), desk: $('ov-desk') };
+  const scales = { phone: 1, desk: 1 };
+
+  /* ------------------------------------------------------------------ layout ---- */
+
+  function fit() {
+    const avail = document.querySelector('.stage').clientWidth - 40;
+    for (const k of ['phone', 'desk']) {
+      const [w, h] = SIZES[k];
+      const s = Math.min(1, avail / w);
+      scales[k] = s;
+      const f = frames[k];
+      f.style.width = w + 'px';
+      f.style.height = h + 'px';
+      f.style.transform = `scale(${s})`;
+      const wrap = f.parentElement;
+      wrap.style.width = Math.round(w * s) + 'px';
+      wrap.style.height = Math.round(h * s) + 'px';
+    }
+    $('sz-phone').textContent = `${SIZES.phone[0]} × ${SIZES.phone[1]}  ·  ${Math.round(scales.phone * 100)}%`;
+    $('sz-desk').textContent = `${SIZES.desk[0]} × ${SIZES.desk[1]}  ·  ${Math.round(scales.desk * 100)}%`;
+    $('notch').style.width = Math.round(44 * scales.phone) + 'px';
+    draw();
+  }
+
+  /* ------------------------------------------------------------------ bridge ---- */
+
+  const post = (k, msg) => { try { frames[k].contentWindow.postMessage({ target: 'abai-tune', ...msg }, '*'); } catch {} };
+  const pushTune = () => {
+    for (const k of ['phone', 'desk']) {
+      post(k, { kind: 'set', tune: { ...tune[k], text: tune.text } });
+    }
+    save();
+  };
+  const goto = (n) => { at = n; for (const k of ['phone', 'desk']) post(k, { kind: 'go', at: n }); paint(); };
+
+  window.addEventListener('message', (e) => {
+    const d = e.data;
+    if (!d || d.source !== 'abai-tune') return;
+    const k = e.source === frames.phone.contentWindow ? 'phone'
+      : e.source === frames.desk.contentWindow ? 'desk' : null;
+    if (!k) return;
+    $('missing').hidden = true;
+    if (d.kind === 'ready') { pushTune(); post(k, { kind: 'go', at }); return; }
+    if (d.kind === 'script') {
+      steps = d.steps.map((x) => ({ key: x.key, chapter: x.chapter, title: x.title, body: x.body, task: x.task }));
+      paint();
+      return;
+    }
+    if (d.kind === 'step') {
+      seen[k] = d;
+      if (k === 'phone' || !seen.phone) {
+        at = d.at;
+        if (!steps.length || steps.length !== d.total) steps = new Array(d.total).fill(null);
+        steps[d.at] = steps[d.at] ?? { key: d.step, chapter: d.chapter, title: d.title, body: d.body, task: d.task };
+        paint();
+      }
+      draw();
+    }
+  });
+
+  /* ------------------------------------------------- the boxes you can drag ---- */
+
+  function boxes(k) {
+    const s = seen[k];
+    if (!s) return [];
+    const out = [];
+    if (s.panel) out.push({ id: 'panel', label: '提示框', rect: s.panel, cls: '' });
+    if (s.card) out.push({ id: 'card', label: '範例牌', rect: s.card, cls: 'card' });
+    if (s.gallery) out.push({ id: 'gallery', label: '六種牌', rect: s.gallery, cls: 'gal' });
+    return out;
+  }
+
+  function draw() {
+    for (const k of ['phone', 'desk']) {
+      const ov = overlays[k];
+      ov.innerHTML = '';
+      const sc = scales[k];
+      for (const b of boxes(k)) {
+        const el = document.createElement('div');
+        el.className = 'hit ' + b.cls;
+        el.dataset.id = b.id;
+        el.dataset.dev = k;
+        el.style.left = Math.round(b.rect[0] * sc) + 'px';
+        el.style.top = Math.round(b.rect[1] * sc) + 'px';
+        el.style.width = Math.round(b.rect[2] * sc) + 'px';
+        el.style.height = Math.round(b.rect[3] * sc) + 'px';
+        el.innerHTML = '<b>' + b.label + '</b>';
+        ov.appendChild(el);
+      }
+    }
+  }
+
+  /** Lines to snap to, in the frame's own pixels: edges, thirds, centre, and the notch. */
+  function guidesFor(k) {
+    const [w, h] = SIZES[k];
+    const inset = k === 'phone' && notch ? 44 : 0;
+    return {
+      x: [inset + 10, inset + 34, w / 2, w - 10, w - 34],
+      y: [10, 34, h / 2, h - 10, h - 34],
+    };
+  }
+
+  let drag = null;
+  document.addEventListener('pointerdown', (e) => {
+    const hit = e.target.closest('.hit');
+    if (!hit) return;
+    e.preventDefault();
+    const dev = hit.dataset.dev;
+    const id = hit.dataset.id;
+    const s = seen[dev];
+    const rect = id === 'panel' ? s.panel : id === 'card' ? s.card : s.gallery;
+    drag = { dev, id, x0: e.clientX, y0: e.clientY, rect, sc: scales[dev],
+             base: JSON.parse(JSON.stringify(tune[dev === 'phone' ? 'phone' : 'desk'])) };
+    hit.setPointerCapture(e.pointerId);
+  });
+
+  document.addEventListener('pointermove', (e) => {
+    if (!drag) return;
+    let dx = (e.clientX - drag.x0) / drag.sc;
+    let dy = (e.clientY - drag.y0) / drag.sc;
+    const devs = target === 'both' ? ['phone', 'desk'] : [target];
+    if (!devs.includes(drag.dev)) devs.push(drag.dev);
+
+    // Auto-align: if an edge of the box lands near a guide, pull it onto it exactly.
+    const marks = [];
+    if (snap) {
+      const g = guidesFor(drag.dev);
+      const l = drag.rect[0] + dx, t = drag.rect[1] + dy;
+      const r = l + drag.rect[2], b = t + drag.rect[3];
+      const cx = l + drag.rect[2] / 2, cy = t + drag.rect[3] / 2;
+      const near = (v, list) => { let best = null, d = 9; for (const q of list) { const dd = Math.abs(v - q); if (dd < d) { d = dd; best = q; } } return best; };
+      const sx = [[l, 0], [cx, drag.rect[2] / 2], [r, drag.rect[2]]];
+      for (const [v, off] of sx) { const q = near(v, g.x); if (q !== null) { dx += q - v; marks.push(['v', q]); break; } }
+      const sy = [[t, 0], [cy, drag.rect[3] / 2], [b, drag.rect[3]]];
+      for (const [v, off] of sy) { const q = near(v, g.y); if (q !== null) { dy += q - v; marks.push(['h', q]); break; } }
+    }
+
+    for (const dev of devs) apply(dev, drag.id, Math.round(dx), Math.round(dy));
+    pushTune();
+    paintValues();
+
+    // Show the lines we snapped to.
+    const ov = overlays[drag.dev];
+    [...ov.querySelectorAll('.guide')].forEach((n) => n.remove());
+    for (const [kind, at2] of marks) {
+      const g = document.createElement('div');
+      g.className = 'guide ' + kind;
+      if (kind === 'v') g.style.left = Math.round(at2 * drag.sc) + 'px';
+      else g.style.top = Math.round(at2 * drag.sc) + 'px';
+      ov.appendChild(g);
+    }
+  });
+
+  document.addEventListener('pointerup', () => {
+    if (!drag) return;
+    drag = null;
+    for (const k of ['phone', 'desk']) [...overlays[k].querySelectorAll('.guide')].forEach((n) => n.remove());
+  });
+
+  /** Move one thing on one device by a delta, in that device's own pixels. */
+  function apply(dev, id, dx, dy) {
+    const t = tune[dev];
+    const s = seen[dev];
+    const [vw, vh] = SIZES[dev];
+    if (id === 'panel') {
+      const ch = s?.chapter ?? '';
+      const p = t.panel[ch] = t.panel[ch] || {};
+      p.dx = (drag.base.panel[ch]?.dx ?? 0) + dx;
+      p.dy = (drag.base.panel[ch]?.dy ?? 0) + dy;
+      // Dragging pins the corner too — see `set` above for why.
+      if (!p.place && s?.place) p.place = s.place.replace(/^at-/, '');
+    } else if (id === 'card') {
+      const c = t.card;
+      const cx0 = drag.base.card.x ?? ((s.card[0] + s.card[2] / 2) / vw) * 100;
+      const cy0 = drag.base.card.y ?? ((s.card[1] + s.card[3] / 2) / vh) * 100;
+      c.x = +(cx0 + (dx / vw) * 100).toFixed(2);
+      c.y = +(cy0 + (dy / vh) * 100).toFixed(2);
+    } else {
+      const g = t.gallery;
+      const gy0 = drag.base.gallery.y ?? (s.gallery[1] / vh) * 100;
+      g.y = +(gy0 + (dy / vh) * 100).toFixed(2);
+    }
+  }
+
+  /* ------------------------------------------------------------- the panel ---- */
+
+  function chapterOf(dev) { return seen[dev]?.chapter ?? ''; }
+
+  function paint() {
+    const list = $('steps');
+    list.innerHTML = '';
+    steps.forEach((st, i) => {
+      const b = document.createElement('button');
+      b.className = i === at ? 'cur' : '';
+      b.innerHTML = `<i>${i + 1}</i><span>${st ? (st.chapter + ' · ' + st.title) : '…'}</span>`;
+      b.onclick = () => goto(i);
+      list.appendChild(b);
+    });
+    const cur = steps[at];
+    if (cur) {
+      const ov = tune.text[cur.key] || {};
+      $('t-title').value = ov.title ?? cur.title ?? '';
+      $('t-body').value = ov.body ?? cur.body ?? '';
+      $('t-task').value = ov.task ?? cur.task ?? '';
+    }
+    paintValues();
+  }
+
+  function paintValues() {
+    const dev = target === 'both' ? 'phone' : target;
+    const t = tune[dev];
+    const ch = chapterOf(dev);
+    const p = t.panel[ch] || {};
+    $('place').value = p.place ?? '';
+    $('dx').value = p.dx ?? 0; $('v-dx').textContent = (p.dx ?? 0) + ' px';
+    $('dy').value = p.dy ?? 0; $('v-dy').textContent = (p.dy ?? 0) + ' px';
+    const pw = p.w ?? (seen[dev]?.panel?.[2] ?? 0);
+    $('pw').value = pw; $('v-pw').textContent = Math.round(pw) + ' px';
+    $('ps').value = Math.round((p.scale ?? 1) * 100); $('v-ps').textContent = Math.round((p.scale ?? 1) * 100) + '%';
+    const c = t.card, s = seen[dev];
+    const cx = c.x ?? (s?.card ? ((s.card[0] + s.card[2] / 2) / SIZES[dev][0]) * 100 : 50);
+    const cy = c.y ?? (s?.card ? ((s.card[1] + s.card[3] / 2) / SIZES[dev][1]) * 100 : 50);
+    $('cx').value = cx; $('v-cx').textContent = cx.toFixed(0) + '%';
+    $('cy').value = cy; $('v-cy').textContent = cy.toFixed(0) + '%';
+    const cw = c.w ?? (s?.card ? s.card[2] : 153);
+    $('cw').value = cw; $('v-cw').textContent = Math.round(cw) + ' px';
+    const g = t.gallery;
+    const gy = g.y ?? (s?.gallery ? (s.gallery[1] / SIZES[dev][1]) * 100 : 50);
+    $('gy').value = gy; $('v-gy').textContent = gy.toFixed(0) + '%';
+    $('gs').value = Math.round((g.scale ?? 1) * 100); $('v-gs').textContent = Math.round((g.scale ?? 1) * 100) + '%';
+  }
+
+  /**
+   * Write one field on the chosen device(s).
+   *
+   * Touching a chapter's panel also pins the corner it is currently in. A nudge on its own is
+   * measured from whichever corner the game picked, and the game picks it from where things
+   * are at that moment — so the same numbers can land the panel somewhere else entirely in a
+   * played game. Recording the corner alongside the nudge is what makes the pair mean one
+   * position rather than a position plus a guess.
+   */
+  function set(where, key, value) {
+    for (const dev of (target === 'both' ? ['phone', 'desk'] : [target])) {
+      const t = tune[dev];
+      if (where === 'panel') {
+        const ch = chapterOf(dev);
+        const p = t.panel[ch] = t.panel[ch] || {};
+        p[key] = value;
+        if (!p.place) {
+          const now = seen[dev]?.place;
+          if (now) p.place = now.replace(/^at-/, '');
+        }
+      } else {
+        t[where][key] = value;
+      }
+    }
+    pushTune();
+    paintValues();
+  }
+
+  const bind = (id, where, key, read) => {
+    $(id).addEventListener('input', () => set(where, key, read($(id).value)));
+  };
+  bind('dx', 'panel', 'dx', Number);
+  bind('dy', 'panel', 'dy', Number);
+  bind('pw', 'panel', 'w', Number);
+  bind('ps', 'panel', 'scale', (v) => +(Number(v) / 100).toFixed(3));
+  bind('cx', 'card', 'x', Number);
+  bind('cy', 'card', 'y', Number);
+  bind('cw', 'card', 'w', Number);
+  bind('gy', 'gallery', 'y', Number);
+  bind('gs', 'gallery', 'scale', (v) => +(Number(v) / 100).toFixed(3));
+  $('place').addEventListener('change', () => {
+    const v = $('place').value;
+    for (const dev of (target === 'both' ? ['phone', 'desk'] : [target])) {
+      const ch = chapterOf(dev);
+      const p = tune[dev].panel[ch] = tune[dev].panel[ch] || {};
+      if (v) p.place = v; else delete p.place;
+    }
+    pushTune(); paintValues();
+  });
+
+  for (const id of ['t-title', 't-body', 't-task']) {
+    $(id).addEventListener('input', () => {
+      const cur = steps[at];
+      if (!cur) return;
+      const o = tune.text[cur.key] = tune.text[cur.key] || {};
+      const field = id.slice(2);
+      const v = $(id).value;
+      const original = cur[field] ?? '';
+      if (v === original) delete o[field]; else o[field] = v;
+      if (!Object.keys(o).length) delete tune.text[cur.key];
+      pushTune();
+    });
+  }
+
+  document.querySelectorAll('.tgt').forEach((b) => b.addEventListener('click', () => {
+    document.querySelectorAll('.tgt').forEach((x) => x.classList.remove('on'));
+    b.classList.add('on');
+    target = b.dataset.tgt;
+    paintValues();
+  }));
+
+  $('snap').addEventListener('click', () => {
+    snap = !snap;
+    $('snap').classList.toggle('on', snap);
+    $('snap').textContent = '吸附：' + (snap ? '開' : '關');
+  });
+
+  $('notch-btn').addEventListener('click', () => {
+    notch = !notch;
+    $('notch').hidden = !notch;
+    $('notch-btn').textContent = '瀏海：' + (notch ? '開' : '關');
+    for (const dev of ['phone']) tune[dev].inset = notch ? 44 : 0;
+    pushTune();
+  });
+
+  $('prev').onclick = () => goto(Math.max(0, at - 1));
+  $('next').onclick = () => goto(Math.min(steps.length - 1, at + 1));
+
+  $('reset-one').onclick = () => {
+    for (const dev of (target === 'both' ? ['phone', 'desk'] : [target])) {
+      const ch = chapterOf(dev);
+      delete tune[dev].panel[ch];
+      tune[dev].card = {}; tune[dev].gallery = {};
+    }
+    pushTune(); paintValues();
+  };
+  $('reset-all').onclick = () => {
+    if (!confirm('把所有調整都還原？')) return;
+    tune = { phone: blank(), desk: blank(), text: {} };
+    pushTune(); paintValues();
+  };
+  /*
+   * A fresh frame each time, with its name set before it is put in the document.
+   *
+   * `name` is read when the browsing context is created, not when the attribute is written —
+   * setting it on a frame that already exists renames nothing, and the game inside would have
+   * no way to tell which machine it is meant to be.
+   */
+  const boot = () => {
+    for (const k of ['phone', 'desk']) {
+      const old = frames[k];
+      const f = document.createElement('iframe');
+      f.id = old.id;
+      f.title = old.title;
+      f.setAttribute('name', k === 'phone' ? 'abai-tune-touch' : 'abai-tune-1');
+      old.replaceWith(f);
+      frames[k] = f;
+      f.srcdoc = GAME_HTML;
+    }
+    fit();
+  };
+  $('reload').onclick = boot;
+
+  /* ------------------------------------------------------------------ output ---- */
+
+  function prune(o) {
+    if (Array.isArray(o)) return o;
+    const out = {};
+    for (const [k, v] of Object.entries(o)) {
+      if (v && typeof v === 'object') {
+        const p = prune(v);
+        if (Object.keys(p).length) out[k] = p;
+      } else if (v !== undefined) out[k] = v;
+    }
+    return out;
+  }
+
+  $('copy').onclick = async () => {
+    const payload = prune({ phone: tune.phone, desk: tune.desk, text: tune.text });
+    const blob = 'ABAI-TUNE-v1 ' + JSON.stringify(payload);
+    try {
+      await navigator.clipboard.writeText(blob);
+      $('copy').textContent = '已複製 ✓';
+    } catch {
+      prompt('複製這一段給我：', blob);
+    }
+    setTimeout(() => { $('copy').textContent = '複製設定'; }, 1600);
+  };
+
+  $('paste').onclick = () => {
+    const v = prompt('貼上先前複製的設定：');
+    if (!v) return;
+    try {
+      const json = JSON.parse(v.replace(/^ABAI-TUNE-v1\s*/, ''));
+      tune = { phone: { ...blank(), ...(json.phone || {}) }, desk: { ...blank(), ...(json.desk || {}) }, text: json.text || {} };
+      pushTune(); paintValues();
+    } catch { alert('讀不懂那一段，請確認是完整複製的。'); }
+  };
+
+  /* ------------------------------------------------------------------- boot ---- */
+
+  load();
+  fit();
+  addEventListener('resize', fit);
+  boot();
+  // If the game file is not beside this one, the frames stay blank — say so rather than
+  // leaving two black rectangles and no explanation.
+  setTimeout(() => { if (!seen.phone && !seen.desk) $('missing').hidden = false; }, 12000);
+})();
+</script>
+</body>
+</html>

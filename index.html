@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="zh-Hant">
+  <head>
+    <meta charset="UTF-8" />
+    <!--
+      `viewport-fit=cover` lets the page paint under the notch and the home indicator, which
+      is what a full-bleed game board wants; the layout then keeps its own controls clear of
+      them with `env(safe-area-inset-*)`, so nothing important ever sits under the hardware.
+
+      `maximum-scale=1, user-scalable=no` asks iOS not to pinch-zoom the board. Safari has
+      ignored that request since iOS 10, so it is only half the job — `touch-action:
+      manipulation` in the stylesheet is what actually stops the double-tap zoom that would
+      otherwise fire every time somebody taps two cards quickly.
+    -->
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover"
+    />
+    <!-- Added to the home screen, it should open as a game, not as a tab. -->
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="祕法對決" />
+    <meta name="theme-color" content="#050507" />
+    <meta name="format-detection" content="telephone=no" />
+    <title>ABAI 祕法對決</title>
+    <style>
+      html,
+      body {
+        background: #000;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>
